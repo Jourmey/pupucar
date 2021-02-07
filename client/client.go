@@ -16,14 +16,14 @@ var kk net.Conn
 //var room *pb.S2C_JoinRoomMsg
 var roomseatid int
 var isStart bool
+var StartChan = make(chan bool)
 
-type InputDataEvent func(input *pb.InputData)
+type InputDataEvent func(input []*pb.InputData)
 
 var MHandler InputDataEvent
-var OHandler InputDataEvent
 
-func Run(room, id uint64) {
-	initKcp()
+func Run(room, id uint64, serverAddr string) {
+	initKcp(serverAddr)
 	initUI()
 
 	go read()
@@ -45,8 +45,8 @@ func initUI() {
 
 }
 
-func initKcp() {
-	k, err := kcp.Dial("localhost:10086")
+func initKcp(add string) {
+	k, err := kcp.Dial(fmt.Sprintf("%s:10086", add))
 	if err != nil {
 		panic(err)
 	}
@@ -95,6 +95,7 @@ func read() {
 		case pb.ID_MSG_Start:
 			log.Print("game start!")
 			isStart = true
+			StartChan <- true
 		case pb.ID_MSG_Frame:
 			rec := &pb.S2C_FrameMsg{}
 			if err := pp.UnmarshalPB(rec); nil != err {
@@ -167,17 +168,9 @@ func handleFrames(frames []*pb.FrameData) {
 	if frames == nil {
 		return
 	}
-	for i := 0; i < len(frames); i++ {
-		handleInputData(frames[i].Input)
-	}
-}
-
-func handleInputData(input []*pb.InputData) {
-	if input == nil || roomseatid >= len(input) {
-		return
-	}
-
 	if MHandler != nil {
-		MHandler(input[roomseatid])
+		for i := 0; i < len(frames); i++ {
+			MHandler(frames[i].Input)
+		}
 	}
 }

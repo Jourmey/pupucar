@@ -1,8 +1,11 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"image/color"
 	"lockstepuiclient/client"
+	"lockstepuiclient/game"
 	"lockstepuiclient/pb"
 	"log"
 	"math/rand"
@@ -11,28 +14,15 @@ import (
 	"github.com/hajimehoshi/ebiten"
 )
 
-var rainbowPal = []color.RGBA{
-	{0xff, 0x00, 0x00, 0xff},
-	{0xff, 0x7f, 0x00, 0xff},
-	{0xff, 0xff, 0x00, 0xff},
-	{0x00, 0xff, 0x00, 0xff},
-	{0x00, 0x00, 0xff, 0xff},
-	{0x4b, 0x00, 0x82, 0xff},
-	{0x8f, 0x00, 0xff, 0xff},
-}
+var mid = flag.Int("mid", 1, "help message for mid")
+var roomid = flag.Int("roomid", 1, "help message for roomid")
+var ip = flag.String("ip", "192.168.16.152", "lockstep server ip")
 
-var sameColorCounter = 0
-var rainbowColorIndex = 0
-
-var game *Game
+var g *Game
 var frameID uint32
 
 func getRainbowColor() color.Color {
-	if sameColorCounter == 0 {
-		rainbowColorIndex = rand.Intn(len(rainbowPal))
-	}
-	sameColorCounter = (sameColorCounter + 1) % 10
-	return rainbowPal[rainbowColorIndex]
+	return game.RainbowPal[game.Id]
 }
 
 type Game struct {
@@ -66,19 +56,24 @@ func (g *Game) Init() error {
 
 func (g *Game) Update(_ *ebiten.Image) error {
 	frameID++
+	var sid game.GameSDI
+	// 移动类
 	if ebiten.IsKeyPressed(ebiten.KeyUp) {
-		client.SendAction(frameID, 1)
+		sid |= game.Up
 	} else if ebiten.IsKeyPressed(ebiten.KeyDown) {
-		client.SendAction(frameID, 2)
-	}
-
-	if ebiten.IsKeyPressed(ebiten.KeyLeft) {
-		client.SendAction(frameID, 3)
+		sid |= game.Down
+	} else if ebiten.IsKeyPressed(ebiten.KeyLeft) {
+		sid |= game.Left
 	} else if ebiten.IsKeyPressed(ebiten.KeyRight) {
-		client.SendAction(frameID, 4)
+		sid |= game.Right
 	}
 
-	return nil
+	//// 技能类
+	//if ebiten.IsKeyPressed(ebiten.KeySpace) {
+	//	sid |= game.Pu
+	//}
+
+	return client.SendAction(frameID, int32(sid))
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -89,7 +84,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	})
 
 	geomo := ebiten.GeoM{}
-	geom.Translate(g.o.x, g.o.y)
+	geomo.Translate(g.o.x, g.o.y)
 	screen.DrawImage(g.m.img, &ebiten.DrawImageOptions{
 		GeoM: geomo,
 	})
@@ -100,35 +95,66 @@ func (g *Game) Layout(_, _ int) (screenWidth, screenHeight int) {
 }
 
 func main() {
-
-	client.MHandler = mHandler
-	client.Run(1, 1)
+	flag.Parse()
 
 	rand.Seed(time.Now().UnixNano())
+	game.RoomID = uint64(*roomid)
+	game.Id = uint64(*mid)
+	log.Print("welcome to pupucar ,mid = ", game.Id, ", roomid = ", game.RoomID)
 
-	ebiten.SetWindowSize(640, 480)
-	ebiten.SetWindowTitle("Snake")
-	game = &Game{}
-	if err := game.Init(); err != nil {
-		log.Fatal(err)
-	}
-	if err := ebiten.RunGame(game); err != nil {
-		log.Fatal(err)
+	client.MHandler = mHandler
+	client.Run(game.RoomID, game.Id, *ip)
+
+	s := <-client.StartChan
+	if s {
+		ebiten.SetWindowSize(640, 480)
+		ebiten.SetWindowTitle(fmt.Sprintf("pupucar id:%d room:%d", game.Id, game.RoomID))
+		g = &Game{}
+		if err := g.Init(); err != nil {
+			log.Fatal(err)
+		}
+		if err := ebiten.RunGame(g); err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 
-func mHandler(input *pb.InputData) {
+func mHandler(input []*pb.InputData) {
+	if input == nil || len(input) == 0 {
+		return
+	}
+
+	for _, i := range input {
+		handleInput(i)
+	}
+
+}
+
+func handleInput(input *pb.InputData) {
 	if input == nil {
 		return
 	}
-	switch *input.Sid {
-	case 1:
-		game.m.y--
-	case 2:
-		game.m.y++
-	case 3:
-		game.m.x--
-	case 4:
-		game.m.x++
+	sid := game.GameSDI(*input.Sid)
+
+	if *input.Id == game.Id {
+		if (sid & game.Up) != 0 {
+			g.m.y -= 1
+		} else if (sid & game.Down) != 0 {
+			g.m.y += 1
+		} else if (sid & game.Left) != 0 {
+			g.m.x -= 1
+		} else if (sid & game.Right) != 0 {
+			g.m.x += 1
+		}
+	} else {
+		if (sid & game.Up) != 0 {
+			g.o.y -= 1
+		} else if (sid & game.Down) != 0 {
+			g.o.y += 1
+		} else if (sid & game.Left) != 0 {
+			g.o.x -= 1
+		} else if (sid & game.Right) != 0 {
+			g.o.x += 1
+		}
 	}
 }
