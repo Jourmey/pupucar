@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"image/color"
 	"lockstepuiclient/client"
 	"lockstepuiclient/game"
 	"lockstepuiclient/pb"
@@ -21,10 +20,6 @@ var ip = flag.String("ip", "192.168.16.152", "lockstep server ip")
 var g *Game
 var frameID uint32
 
-func getRainbowColor() color.Color {
-	return game.RainbowPal[game.Id]
-}
-
 type Game struct {
 	m *Block
 	o *Block
@@ -38,20 +33,13 @@ type Block struct {
 	height int
 }
 
-func NewBlock() *Block {
+func NewBlock(id uint64) *Block {
 	b := new(Block)
 	b.width = 3
 	b.height = 3
 	b.img, _ = ebiten.NewImage(b.width, b.height, ebiten.FilterDefault)
-	b.img.Fill(getRainbowColor())
+	b.img.Fill(game.RainbowPal[id])
 	return b
-}
-
-func (g *Game) Init() error {
-	g.m = NewBlock()
-	g.o = NewBlock()
-	//g.direction = Right
-	return nil
 }
 
 func (g *Game) Update(_ *ebiten.Image) error {
@@ -85,7 +73,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	geomo := ebiten.GeoM{}
 	geomo.Translate(g.o.x, g.o.y)
-	screen.DrawImage(g.m.img, &ebiten.DrawImageOptions{
+	screen.DrawImage(g.o.img, &ebiten.DrawImageOptions{
 		GeoM: geomo,
 	})
 }
@@ -110,9 +98,9 @@ func main() {
 		ebiten.SetWindowSize(640, 480)
 		ebiten.SetWindowTitle(fmt.Sprintf("pupucar id:%d room:%d", game.Id, game.RoomID))
 		g = &Game{}
-		if err := g.Init(); err != nil {
-			log.Fatal(err)
-		}
+		g.m = NewBlock(1)
+		g.o = NewBlock(2)
+
 		if err := ebiten.RunGame(g); err != nil {
 			log.Fatal(err)
 		}
