@@ -5,29 +5,26 @@ import (
 	"github.com/byebyebruce/lockstepserver/protocol"
 	"github.com/golang/protobuf/proto"
 	"github.com/xtaci/kcp-go"
-	"lockstepuiclient/pb"
+	"lockstepuiclient/client/pb"
 	"log"
 	"net"
 	"time"
 )
 
 var kk net.Conn
-
-//var room *pb.S2C_JoinRoomMsg
-var roomseatid int
+var receive ReceiveDataEvent
+var join JoinRoomEvent
+var loginChan = make(chan pb.ID)
 var isStart bool
-var StartChan = make(chan bool)
 
-type InputDataEvent func(input []*pb.InputData)
-
-var MHandler InputDataEvent
+type ReceiveDataEvent func(input []*pb.InputData)
+type JoinRoomEvent func(rec *pb.S2C_JoinRoomMsg)
 
 func Run(room, id uint64, serverAddr string) {
 	initKcp(serverAddr)
 	initUI()
 
 	go read()
-	go heart()
 	err := sendMSG_Connect(room, id)
 	if err != nil {
 		panic(err)
@@ -35,10 +32,26 @@ func Run(room, id uint64, serverAddr string) {
 }
 
 func SendAction(frameID uint32, sid int32) error {
+	if !isStart {
+		return nil
+	}
 	p := new(pb.C2S_InputMsg)
 	p.FrameID = &frameID
 	p.Sid = &sid
 	return sendMsg(pb.ID_MSG_Input, p)
+}
+
+func RegisterReceiveAction(re ReceiveDataEvent, j JoinRoomEvent) {
+	receive = re
+	join = j
+}
+
+func GetLoginChan() chan pb.ID {
+	return loginChan
+}
+
+func SendMSG_Ready() error {
+	return sendMsg(pb.ID_MSG_Ready, nil)
 }
 
 func initUI() {
@@ -57,9 +70,7 @@ func heart() {
 	go func() {
 		t1 := time.NewTicker(1 * time.Second)
 		for range t1.C {
-			if isStart {
-				heartbeat()
-			}
+			heartbeat()
 		}
 	}()
 }
@@ -79,6 +90,7 @@ func read() {
 			if err := pp.UnmarshalPB(rec); nil != err {
 				log.Println("msg.UnmarshalPB failed. error=", err)
 			} else {
+				//loginChan <- pb.ID_MSG_Connect
 				handleS2C_ConnectMsg(rec)
 			}
 		case pb.ID_MSG_Heartbeat:
@@ -92,10 +104,11 @@ func read() {
 			}
 		case pb.ID_MSG_Ready:
 			log.Print("game ready!")
+			//loginChan <- pb.ID_MSG_Ready
 		case pb.ID_MSG_Start:
 			log.Print("game start!")
+			//loginChan <- pb.ID_MSG_Start
 			isStart = true
-			StartChan <- true
 		case pb.ID_MSG_Frame:
 			rec := &pb.S2C_FrameMsg{}
 			if err := pp.UnmarshalPB(rec); nil != err {
@@ -124,11 +137,8 @@ func sendMSG_Connect(room, id uint64) error {
 }
 
 func sendMSG_JoinRoom() error {
+	go heart()
 	return sendMsg(pb.ID_MSG_JoinRoom, nil)
-}
-
-func sendMSG_Ready() error {
-	return sendMsg(pb.ID_MSG_Ready, nil)
 }
 
 func sendMsg(connect pb.ID, c interface{}) error {
@@ -147,13 +157,15 @@ func handleS2C_ConnectMsg(rec *pb.S2C_ConnectMsg) {
 		_ = sendMSG_JoinRoom()
 	} else {
 		log.Print("handleS2C_ConnectMsg failed. default rec = ", rec)
+		panic("room err") //test
 	}
 }
 
 func handleS2C_JoinRoomMsg(rec *pb.S2C_JoinRoomMsg) {
-	//room = rec
-	roomseatid = int(*rec.Roomseatid)
-	_ = sendMSG_Ready()
+	if join != nil {
+		join(rec)
+	}
+	//_ = SendMSG_Ready()
 }
 
 func handleS2C_FrameMsg(rec *pb.S2C_FrameMsg) {
@@ -168,9 +180,9 @@ func handleFrames(frames []*pb.FrameData) {
 	if frames == nil {
 		return
 	}
-	if MHandler != nil {
+	if receive != nil {
 		for i := 0; i < len(frames); i++ {
-			MHandler(frames[i].Input)
+			receive(frames[i].Input)
 		}
 	}
 }

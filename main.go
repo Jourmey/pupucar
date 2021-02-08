@@ -4,10 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"lockstepuiclient/client"
-	"lockstepuiclient/game"
-	"lockstepuiclient/pb"
+	"lockstepuiclient/ui"
 	"log"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten"
@@ -17,132 +17,41 @@ var mid = flag.Int("mid", 1, "help message for mid")
 var roomid = flag.Int("roomid", 1, "help message for roomid")
 var ip = flag.String("ip", "192.168.16.152", "lockstep server ip")
 
-var g *Game
-var frameID uint32
-
-type Game struct {
-	m *Block
-	o *Block
-}
-
-type Block struct {
-	img    *ebiten.Image
-	x      float64
-	y      float64
-	width  int
-	height int
-}
-
-func NewBlock(id uint64) *Block {
-	b := new(Block)
-	b.width = 3
-	b.height = 3
-	b.img, _ = ebiten.NewImage(b.width, b.height, ebiten.FilterDefault)
-	b.img.Fill(game.RainbowPal[id])
-	return b
-}
-
-func (g *Game) Update(_ *ebiten.Image) error {
-	frameID++
-	var sid game.GameSDI
-	// 移动类
-	if ebiten.IsKeyPressed(ebiten.KeyUp) {
-		sid |= game.Up
-	} else if ebiten.IsKeyPressed(ebiten.KeyDown) {
-		sid |= game.Down
-	} else if ebiten.IsKeyPressed(ebiten.KeyLeft) {
-		sid |= game.Left
-	} else if ebiten.IsKeyPressed(ebiten.KeyRight) {
-		sid |= game.Right
-	}
-
-	//// 技能类
-	//if ebiten.IsKeyPressed(ebiten.KeySpace) {
-	//	sid |= game.Pu
-	//}
-
-	return client.SendAction(frameID, int32(sid))
-}
-
-func (g *Game) Draw(screen *ebiten.Image) {
-	geom := ebiten.GeoM{}
-	geom.Translate(g.m.x, g.m.y)
-	screen.DrawImage(g.m.img, &ebiten.DrawImageOptions{
-		GeoM: geom,
-	})
-
-	geomo := ebiten.GeoM{}
-	geomo.Translate(g.o.x, g.o.y)
-	screen.DrawImage(g.o.img, &ebiten.DrawImageOptions{
-		GeoM: geomo,
-	})
-}
-
-func (g *Game) Layout(_, _ int) (screenWidth, screenHeight int) {
-	return 320, 240
-}
+var roomID uint64
+var id uint64
+var u sync.Once
 
 func main() {
 	flag.Parse()
 
 	rand.Seed(time.Now().UnixNano())
-	game.RoomID = uint64(*roomid)
-	game.Id = uint64(*mid)
-	log.Print("welcome to pupucar ,mid = ", game.Id, ", roomid = ", game.RoomID)
+	roomID = uint64(*roomid)
+	id = uint64(*mid)
+	log.Print("welcome to ui ,mid = ", id, ", roomid = ", roomID)
 
-	client.MHandler = mHandler
-	client.Run(game.RoomID, game.Id, *ip)
-
-	s := <-client.StartChan
-	if s {
-		ebiten.SetWindowSize(640, 480)
-		ebiten.SetWindowTitle(fmt.Sprintf("pupucar id:%d room:%d", game.Id, game.RoomID))
-		g = &Game{}
-		g.m = NewBlock(1)
-		g.o = NewBlock(2)
-
-		if err := ebiten.RunGame(g); err != nil {
-			log.Fatal(err)
-		}
-	}
+	client.Run(roomID, id, *ip)
+	show()
+	//channel := client.GetLoginChan()
+	//for i := range channel {
+	//	switch i {
+	//	case pb.ID_MSG_Connect:
+	//	case pb.ID_MSG_Ready:
+	//	case pb.ID_MSG_Start:
+	//	}
+	//}
 }
 
-func mHandler(input []*pb.InputData) {
-	if input == nil || len(input) == 0 {
-		return
-	}
+func show() {
+	ebiten.SetWindowSize(640, 480)
+	ebiten.SetWindowTitle(fmt.Sprintf("ui id:%d room:%d", id, roomID))
 
-	for _, i := range input {
-		handleInput(i)
-	}
-
-}
-
-func handleInput(input *pb.InputData) {
-	if input == nil {
-		return
-	}
-	sid := game.GameSDI(*input.Sid)
-
-	if *input.Id == game.Id {
-		if (sid & game.Up) != 0 {
-			g.m.y -= 1
-		} else if (sid & game.Down) != 0 {
-			g.m.y += 1
-		} else if (sid & game.Left) != 0 {
-			g.m.x -= 1
-		} else if (sid & game.Right) != 0 {
-			g.m.x += 1
-		}
-	} else {
-		if (sid & game.Up) != 0 {
-			g.o.y -= 1
-		} else if (sid & game.Down) != 0 {
-			g.o.y += 1
-		} else if (sid & game.Left) != 0 {
-			g.o.x -= 1
-		} else if (sid & game.Right) != 0 {
-			g.o.x += 1
-		}
+	status := ui.NewStatus(id, roomID)
+	g := ui.NewPupuCar(status)
+	client.RegisterReceiveAction(
+		g.ReceiveData,
+		g.JoinRoom,
+	)
+	if err := ebiten.RunGame(g); err != nil {
+		log.Fatal(err)
 	}
 }
