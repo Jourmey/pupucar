@@ -31,14 +31,6 @@ func main() {
 
 	client.Run(roomID, id, *ip)
 	show()
-	//channel := client.GetLoginChan()
-	//for i := range channel {
-	//	switch i {
-	//	case pb.ID_MSG_Connect:
-	//	case pb.ID_MSG_Ready:
-	//	case pb.ID_MSG_Start:
-	//	}
-	//}
 }
 
 func show() {
@@ -50,6 +42,7 @@ func show() {
 	client.RegisterReceiveAction(
 		g.ReceiveData,
 		g.JoinRoom,
+		g.GameStart,
 	)
 	if err := ebiten.RunGame(g); err != nil {
 		log.Fatal(err)

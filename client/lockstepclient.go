@@ -12,13 +12,16 @@ import (
 )
 
 var kk net.Conn
+var isStart bool
+
+//事件
 var receive ReceiveDataEvent
 var join JoinRoomEvent
-var loginChan = make(chan pb.ID)
-var isStart bool
+var start GameStartEvent
 
 type ReceiveDataEvent func(input []*pb.InputData)
 type JoinRoomEvent func(rec *pb.S2C_JoinRoomMsg)
+type GameStartEvent func()
 
 func Run(room, id uint64, serverAddr string) {
 	initKcp(serverAddr)
@@ -41,13 +44,10 @@ func SendAction(frameID uint32, sid int32) error {
 	return sendMsg(pb.ID_MSG_Input, p)
 }
 
-func RegisterReceiveAction(re ReceiveDataEvent, j JoinRoomEvent) {
+func RegisterReceiveAction(re ReceiveDataEvent, j JoinRoomEvent, s GameStartEvent) {
 	receive = re
 	join = j
-}
-
-func GetLoginChan() chan pb.ID {
-	return loginChan
+	start = s
 }
 
 func SendMSG_Ready() error {
@@ -90,7 +90,6 @@ func read() {
 			if err := pp.UnmarshalPB(rec); nil != err {
 				log.Println("msg.UnmarshalPB failed. error=", err)
 			} else {
-				//loginChan <- pb.ID_MSG_Connect
 				handleS2C_ConnectMsg(rec)
 			}
 		case pb.ID_MSG_Heartbeat:
@@ -104,10 +103,11 @@ func read() {
 			}
 		case pb.ID_MSG_Ready:
 			log.Print("game ready!")
-			//loginChan <- pb.ID_MSG_Ready
 		case pb.ID_MSG_Start:
 			log.Print("game start!")
-			//loginChan <- pb.ID_MSG_Start
+			if start != nil {
+				start()
+			}
 			isStart = true
 		case pb.ID_MSG_Frame:
 			rec := &pb.S2C_FrameMsg{}

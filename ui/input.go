@@ -14,7 +14,7 @@ func newInput() *input {
 
 var frameID uint32
 
-func (i *input) Update() error {
+func (i *input) update() error {
 	frameID++
 	var sid GameSDI
 	// 移动类
